@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>mymusic</title>
+<style>
+body { margin:0; background:#111; color:white; font-family:sans-serif; overflow:hidden; }
+canvas { display:block; background:black; touch-action:none; }
+#ui { position:absolute; top:0; left:0; width:100%; height:100%; display:flex;
+      justify-content:center; align-items:center; flex-direction:column; }
+button { font-size:8vw; padding:2vh 5vw; margin:2vh; cursor:pointer; }
+</style>
+</head>
+<body>
+<canvas id="gameCanvas"></canvas>
+<div id="ui">Loading...</div>
+
+<script>
+const canvas = document.getElementById("gameCanvas");
+const ctx = canvas.getContext("2d");
+const ui = document.getElementById("ui");
+
+let laneWidth, hitLineY;
+let speedFactor = 300; // px/sec
+let hitRangePerfectSec = 0.15;
+let hitRangeGoodSec = 0.25;
+let hitDisplayTime = 500;
+let offsetSec = 0; // BGM同期用オフセット（秒）
+
+let chart=[], notes=[], startPerfTime=null;
+let score=0, combo=0, gameState="start", currentHitText=null, currentCountdown=null;
+let hitCounts={PERFECT:0,GOOD:0,MISS:0};
+
+const audioCtx = new (window.AudioContext||window.webkitAudioContext)();
+let bgmBuffer=null, bgmSource=null;
+
+// キャンバスサイズ調整
+function resizeCanvas(){
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+    laneWidth = canvas.width / 2;
+    hitLineY = canvas.height * 0.9; // 下から10%
+}
+window.addEventListener('resize', resizeCanvas);
+resizeCanvas();
+
+// JSON読み込み
+fetch("chart.json")
+.then(res=>res.json())
+.then(data=>{
+    chart = parseChartTiming(data);
+    notes = chart.map(n=>({...n, hit:false}));
+    if(data.bgm){
+        fetch(data.bgm)
+        .then(r=>r.arrayBuffer())
+        .then(buf=>audioCtx.decodeAudioData(buf))
+        .then(decoded=>{ bgmBuffer=decoded; showStartScreen(); })
+        .catch(err=>{ console.error("BGM読み込み失敗",err); showStartScreen(); });
+    } else showStartScreen();
+})
+.catch(err=>{ console.error("譜面読み込み失敗",err); ui.innerHTML="Error"; });
+
+function parseChartTiming(jsonChart){
+    const bpm=jsonChart.bpm;
+    const beatsPerMeasure=jsonChart.timeSignature[0];
+    const secPerBeat=60/bpm;
+    return jsonChart.notes.map(n=>({
+        startTime: ((n.measure-1)*beatsPerMeasure + (n.beat-1))*secPerBeat + (jsonChart.offset||0)
+    ,   lane: n.lane
+    }));
+}
+
+function showStartScreen(){
+    gameState="start"; ui.innerHTML="";
+    notes = chart.map(n=>({...n, hit:false}));
+
+    const btn = document.createElement('button');
+    btn.innerText="Start";
+    btn.onclick = async () => {
+        if(audioCtx.state==='suspended') await audioCtx.resume();
+        startCountdown();
+    };
+    ui.appendChild(btn);
+}
+
+function startCountdown(){
+    gameState="countdown"; ui.innerHTML="";
+    currentCountdown=3;
+    const interval = setInterval(()=>{
+        currentCountdown--;
+        if(currentCountdown<=0){
+            clearInterval(interval);
+            currentCountdown=null;
+            startBGMAndGame();
+        }
+    },1000);
+}
+
+function startBGMAndGame(){
+    if(bgmBuffer){
+        bgmSource=audioCtx.createBufferSource();
+        bgmSource.buffer=bgmBuffer;
+        bgmSource.connect(audioCtx.destination);
+
+        // BGM をわずかに遅らせて再生
+        const startAt = audioCtx.currentTime + 0.05 + offsetSec;
+        bgmSource.start(startAt);
+
+        // 再生後にタイマー原点をセット
+        setTimeout(()=>{
+            startPerfTime = performance.now();
+        }, 80);
+
+        bgmSource.onended=()=>{ showResultScreen(); };
+    } else {
+        // BGM無しでも startPerfTime は必要
+        startPerfTime = performance.now();
+    }
+
+    startGame();
+}
+
+function startGame(){
+    gameState="playing";
+    score=0; combo=0; currentHitText=null;
+    hitCounts={PERFECT:0,GOOD:0,MISS:0};
+}
+
+function showResultScreen(){
+    if(bgmSource) bgmSource.stop();
+    gameState="result"; ui.innerHTML="";
+
+    const div=document.createElement('div');
+    div.style.fontSize='6vw';
+    div.style.textAlign='center';
+    div.style.marginBottom='4vh';
+    div.innerHTML=`
+        <div>Score: ${score}</div>
+        <div>Combo: ${combo}</div>
+        <div>PERFECT: ${hitCounts.PERFECT}</div>
+        <div>GOOD: ${hitCounts.GOOD}</div>
+        <div>MISS: ${hitCounts.MISS}</div>
+    `;
+
+    const retryBtn=document.createElement('button');
+    retryBtn.innerText="Retry";
+    retryBtn.onclick=()=>showStartScreen();
+
+    ui.appendChild(div);
+    ui.appendChild(retryBtn);
+}
+
+function drawBackground(){
+    ctx.strokeStyle="white";
+    ctx.beginPath(); ctx.moveTo(laneWidth,0); ctx.lineTo(laneWidth,canvas.height); ctx.stroke();
+    ctx.strokeStyle="red";
+    ctx.beginPath(); ctx.moveTo(0,hitLineY); ctx.lineTo(canvas.width,hitLineY); ctx.stroke();
+    ctx.fillStyle="white"; ctx.font="25px sans-serif"; ctx.textAlign="center";
+    ctx.fillText("F", laneWidth/2, canvas.height-20);
+    ctx.fillText("J", laneWidth + laneWidth/2, canvas.height-20);
+}
+
+function showHitText(text){
+    currentHitText={text:text, startTime:performance.now()};
+    if(hitCounts[text]!==undefined) hitCounts[text]++;
+}
+
+function getGameTimeSec(){
+    if(!startPerfTime) return 0;
+    return (performance.now() - startPerfTime) / 1000;
+}
+
+function judge(lane){
+    if(!notes.length || gameState!=="playing") return;
+    const now = getGameTimeSec();
+    let hit=false;
+    for(let note of notes){
+        if(!note.hit && note.lane===lane){
+            const diff = now - note.startTime;
+            if(Math.abs(diff)<=hitRangePerfectSec){ 
+                note.hit=true; score+=100; combo++; showHitText("PERFECT"); hit=true; break;
+            } else if(Math.abs(diff)<=hitRangeGoodSec){ 
+                note.hit=true; score+=50; combo++; showHitText("GOOD"); hit=true; break;
+            }
+        }
+    }
+    if(!hit){ combo=0; showHitText("MISS"); }
+}
+
+// キーボード対応
+document.addEventListener("keydown",e=>{
+    if(e.key=="f"||e.key=="F") judge(0);
+    if(e.key=="j"||e.key=="J") judge(1);
+});
+
+// タップ対応（pointer + touchstart）
+function handleTap(clientX){
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width/rect.width;
+    const x = (clientX - rect.left) * scaleX;
+    const lane = x < laneWidth ? 0 : 1;
+    judge(lane);
+}
+
+canvas.addEventListener("pointerdown", e=>{
+    if(gameState!=="playing") return;
+    handleTap(e.clientX);
+});
+
+canvas.addEventListener("touchstart", e=>{
+    if(gameState!=="playing") return;
+    handleTap(e.touches[0].clientX);
+});
+
+function update(){
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+    drawBackground();
+
+    if(gameState==="playing"){
+        const now = getGameTimeSec();
+        for(let note of notes){
+            if(!note.hit){
+                const appearTime = note.startTime - (hitLineY + 30)/speedFactor;
+                if(now>=appearTime){
+                    const y = (now - appearTime)*speedFactor;
+                    ctx.fillStyle="cyan";
+                    ctx.beginPath();
+                    ctx.arc(note.lane*laneWidth+laneWidth/2, y, 15,0,Math.PI*2); ctx.fill();
+                    if(y>hitLineY + 0.5*speedFactor/60){ note.hit=true; showHitText("MISS"); combo=0; }
+                }
+            }
+        }
+    }
+
+    if(gameState==="countdown" && currentCountdown!=null){
+        ctx.fillStyle="white"; ctx.font="60px sans-serif"; ctx.textAlign="center";
+        ctx.fillText(currentCountdown, canvas.width/2, canvas.height/2);
+    }
+
+    if(currentHitText){
+        const elapsed = performance.now()-currentHitText.startTime;
+        if(elapsed<hitDisplayTime){
+            ctx.fillStyle = currentHitText.text==="PERFECT"?"gold":currentHitText.text==="GOOD"?"lime":"red";
+            ctx.font="40px sans-serif"; ctx.textAlign="center";
+            ctx.fillText(currentHitText.text, canvas.width/2, canvas.height/2);
+        } else currentHitText=null;
+    }
+
+    if(gameState==="playing"){
+        ctx.fillStyle="white"; ctx.font="20px sans-serif"; ctx.textAlign="left";
+        ctx.fillText(`Score: ${score} | Combo: ${combo}`,10,30);
+    }
+
+    requestAnimationFrame(update);
+}
+
+update();
+</script>
+</body>
+</html>
