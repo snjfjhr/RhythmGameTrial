@@ -67,17 +67,13 @@ function isMobile() {
 // ===== 画面向き固定処理 =====
 async function lockOrientationPortrait() {
     if (screen.orientation && screen.orientation.lock) {
-        try {
-            await screen.orientation.lock("portrait");
-        } catch (e) {}
+        try { await screen.orientation.lock("portrait"); } catch(e) {}
     }
 }
 
 async function lockOrientationLandscape() {
     if (screen.orientation && screen.orientation.lock) {
-        try {
-            await screen.orientation.lock("landscape");
-        } catch (e) {}
+        try { await screen.orientation.lock("landscape"); } catch(e) {}
     }
 }
 
@@ -96,7 +92,7 @@ window.addEventListener("orientationchange", () => {
     }
 });
 
-// キャンバスサイズ調整
+// ===== キャンバスサイズ =====
 function resizeCanvas(){
     canvas.width = window.innerWidth;
     canvas.height = window.innerHeight;
@@ -106,34 +102,7 @@ function resizeCanvas(){
 window.addEventListener('resize', resizeCanvas);
 resizeCanvas();
 
-// ===== 入力処理（修正点のコア） =====
-
-function handleInput(e) {
-    if (gameState !== "playing") return;
-    e.preventDefault(); // iOSスクロール防止
-
-    let x;
-    const rect = canvas.getBoundingClientRect();
-
-    if (e.touches && e.touches.length > 0) {
-        x = e.touches[0].clientX;
-    } else {
-        x = e.clientX;
-    }
-
-    const scaleX = canvas.width / rect.width;
-    const realX = (x - rect.left) * scaleX;
-    const lane = realX < laneWidth ? 0 : 1;
-
-    judge(lane);
-}
-
-// PC＋スマホ両対応
-canvas.addEventListener("pointerdown", handleInput, { passive: false });
-canvas.addEventListener("touchstart", handleInput, { passive: false });
-canvas.addEventListener("mousedown", handleInput);
-
-// ====== JSON & BGM 読み込み ======
+// ===== JSON & BGM 読み込み ======
 fetch("chart.json")
 .then(res=>res.json())
 .then(data=>{
@@ -159,6 +128,7 @@ function parseChartTiming(jsonChart){
     }));
 }
 
+// ===== UI & ゲーム開始 =====
 function showStartScreen(){
     gameState="start"; ui.innerHTML="";
     notes = chart.map(n=>({...n, hit:false}));
@@ -227,6 +197,7 @@ function showResultScreen(){
     ui.appendChild(retryBtn);
 }
 
+// ===== 描画 =====
 function drawBackground(){
     ctx.strokeStyle="white";
     ctx.beginPath(); ctx.moveTo(laneWidth,0); ctx.lineTo(laneWidth,canvas.height); ctx.stroke();
@@ -242,6 +213,7 @@ function showHitText(text){
     if(hitCounts[text]!==undefined) hitCounts[text]++;
 }
 
+// ===== 判定 =====
 function judge(lane){
     if(!notes.length || !startTime || gameState!=="playing") return;
     const now = audioCtx.currentTime - startTime;
@@ -259,12 +231,33 @@ function judge(lane){
     if(!hit){ combo=0; showHitText("MISS"); }
 }
 
-// キーボード対応
-document.addEventListener("keydown",e=>{
+// ===== キーボード操作 =====
+document.addEventListener("keydown", e => {
     if(e.key=="f"||e.key=="F") judge(0);
     if(e.key=="j"||e.key=="J") judge(1);
 });
 
+// ===== タップ/クリック判定（左右半分全域反応） =====
+function handleInput(e){
+    if(gameState !== "playing") return;
+    e.preventDefault();
+    let x;
+    const rect = canvas.getBoundingClientRect();
+    if(e.touches && e.touches.length > 0){
+        x = e.touches[0].clientX;
+    } else {
+        x = e.clientX;
+    }
+    const scaleX = canvas.width / rect.width;
+    const realX = (x - rect.left) * scaleX;
+    const lane = realX < laneWidth ? 0 : 1; // 0=左、1=右
+    judge(lane);
+}
+canvas.addEventListener("pointerdown", handleInput, {passive:false});
+canvas.addEventListener("mousedown", handleInput);
+canvas.addEventListener("touchstart", handleInput, {passive:false});
+
+// ===== ゲームループ =====
 function update(){
     ctx.clearRect(0,0,canvas.width,canvas.height);
     drawBackground();
@@ -274,12 +267,14 @@ function update(){
         for(let note of notes){
             if(!note.hit){
                 const appearTime = note.startTime - (hitLineY + 30)/speedFactor;
-                if(now>=appearTime){
+                if(now >= appearTime){
                     const y = (now - appearTime)*speedFactor;
                     ctx.fillStyle="cyan";
                     ctx.beginPath();
-                    ctx.arc(note.lane*laneWidth+laneWidth/2, y, 15,0,Math.PI*2); ctx.fill();
-                    if(y>hitLineY + 0.5*speedFactor/60){ note.hit=true; showHitText("MISS"); combo=0; }
+                    ctx.arc(note.lane*laneWidth + laneWidth/2, y, 15,0,Math.PI*2); ctx.fill();
+                    if(y > hitLineY + 0.5*speedFactor/60){
+                        note.hit=true; showHitText("MISS"); combo=0;
+                    }
                 }
             }
         }
@@ -291,8 +286,8 @@ function update(){
     }
 
     if(currentHitText){
-        const elapsed = performance.now()-currentHitText.startTime;
-        if(elapsed<hitDisplayTime){
+        const elapsed = performance.now() - currentHitText.startTime;
+        if(elapsed < hitDisplayTime){
             ctx.fillStyle = currentHitText.text==="PERFECT"?"gold":currentHitText.text==="GOOD"?"lime":"red";
             ctx.font="40px sans-serif"; ctx.textAlign="center";
             ctx.fillText(currentHitText.text, canvas.width/2, canvas.height/2);
