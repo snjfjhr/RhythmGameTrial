@@ -13,8 +13,8 @@
 <meta name="x5-fullscreen" content="true">
 
 <style>
-body { margin:0; background:#111; color:white; font-family:sans-serif; overflow:hidden; }
-canvas { display:block; background:black; touch-action:none; } /* タッチ操作でスクロール阻止 */
+html, body { margin:0; padding:0; width:100%; height:100%; background:#111; color:white; font-family:sans-serif; overflow:hidden; touch-action:none; }
+canvas { display:block; background:black; width:100%; height:100%; touch-action:none; }
 #ui { position:absolute; top:0; left:0; width:100%; height:100%; display:flex;
       justify-content:center; align-items:center; flex-direction:column; }
 button { font-size:8vw; padding:2vh 5vw; margin:2vh; cursor:pointer; }
@@ -46,7 +46,7 @@ const ctx = canvas.getContext("2d");
 const ui = document.getElementById("ui");
 
 let laneWidth, hitLineY;
-let speedFactor = 300; // px/sec
+let speedFactor = 300;
 let hitRangePerfectSec = 0.15;
 let hitRangeGoodSec = 0.25;
 let hitDisplayTime = 500;
@@ -66,18 +66,18 @@ function isMobile() {
 
 // ===== 画面向き固定 =====
 async function lockOrientationPortrait() {
-    if (screen.orientation && screen.orientation.lock) {
+    if(screen.orientation && screen.orientation.lock) {
         try { await screen.orientation.lock("portrait"); } catch(e) {}
     }
 }
 async function lockOrientationLandscape() {
-    if (screen.orientation && screen.orientation.lock) {
+    if(screen.orientation && screen.orientation.lock) {
         try { await screen.orientation.lock("landscape"); } catch(e) {}
     }
 }
 
 window.addEventListener('load', () => {
-    if (isMobile()) {
+    if(isMobile()){
         document.body.classList.add("mobile");
         lockOrientationPortrait();
     } else {
@@ -86,12 +86,10 @@ window.addEventListener('load', () => {
 });
 
 window.addEventListener("orientationchange", () => {
-    if (isMobile() && window.orientation !== 0) {
-        alert("縦画面でプレイしてください");
-    }
+    if(isMobile() && window.orientation !== 0) alert("縦画面でプレイしてください");
 });
 
-// ===== キャンバスサイズ =====
+// ===== Canvas サイズ =====
 function resizeCanvas(){
     canvas.width = window.innerWidth;
     canvas.height = window.innerHeight;
@@ -157,11 +155,11 @@ function startCountdown(){
 function startBGMAndGame(){
     startTime = audioCtx.currentTime;
     if(bgmBuffer){
-        bgmSource=audioCtx.createBufferSource();
-        bgmSource.buffer=bgmBuffer;
+        bgmSource = audioCtx.createBufferSource();
+        bgmSource.buffer = bgmBuffer;
         bgmSource.connect(audioCtx.destination);
         bgmSource.start(startTime + offsetSec);
-        bgmSource.onended=()=>{ showResultScreen(); };
+        bgmSource.onended = () => { showResultScreen(); };
     }
     startGame();
 }
@@ -172,6 +170,7 @@ function startGame(){
     hitCounts={PERFECT:0,GOOD:0,MISS:0};
 }
 
+// ===== 結果画面 =====
 function showResultScreen(){
     if(bgmSource) bgmSource.stop();
     gameState="result"; ui.innerHTML="";
@@ -220,9 +219,9 @@ function judge(lane){
     for(let note of notes){
         if(!note.hit && note.lane===lane){
             const diff = now - note.startTime;
-            if(Math.abs(diff)<=hitRangePerfectSec){ 
+            if(Math.abs(diff)<=hitRangePerfectSec){
                 note.hit=true; score+=100; combo++; showHitText("PERFECT"); hit=true; break;
-            } else if(Math.abs(diff)<=hitRangeGoodSec){ 
+            } else if(Math.abs(diff)<=hitRangeGoodSec){
                 note.hit=true; score+=50; combo++; showHitText("GOOD"); hit=true; break;
             }
         }
@@ -236,26 +235,25 @@ document.addEventListener("keydown", e => {
     if(e.key=="j"||e.key=="J") judge(1);
 });
 
-// ===== タップ/クリック判定（左右半分全域対応） =====
-function handleInput(e){
-    if(gameState !== "playing") return;
-    e.preventDefault(); // スマホスクロール防止
-    let x;
-    const rect = canvas.getBoundingClientRect();
-    if(e.touches && e.touches.length>0){
-        x = e.touches[0].clientX;
-    } else {
-        x = e.clientX;
+// ===== タップ判定（スマホ用） =====
+function handleTouchStart(e){
+    if(gameState!=="playing") return;
+    e.preventDefault();
+    for(let t of e.touches){
+        const rect = canvas.getBoundingClientRect();
+        const realX = t.pageX - rect.left;
+        const lane = realX < laneWidth ? 0 : 1;
+        judge(lane);
     }
-    const scaleX = canvas.width / rect.width;
-    const realX = (x - rect.left) * scaleX;
-    const lane = realX < laneWidth ? 0 : 1;
-    judge(lane);
 }
 
-canvas.addEventListener("pointerdown", handleInput, {passive:false});
-canvas.addEventListener("mousedown", handleInput);
-canvas.addEventListener("touchstart", handleInput, {passive:false});
+canvas.addEventListener("touchstart", handleTouchStart, {passive:false});
+canvas.addEventListener("mousedown", e=>{
+    if(gameState!=="playing") return;
+    const rect = canvas.getBoundingClientRect();
+    const lane = e.pageX - rect.left < laneWidth ? 0 : 1;
+    judge(lane);
+});
 
 // ===== ゲームループ =====
 function update(){
@@ -301,7 +299,6 @@ function update(){
 
     requestAnimationFrame(update);
 }
-
 update();
 </script>
 </body>
