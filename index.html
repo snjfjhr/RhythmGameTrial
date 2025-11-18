@@ -8,12 +8,13 @@
   body {
     margin: 0;
     overflow: hidden;
-    touch-action: none; /* ← スマホで重要 */
+    touch-action: manipulation;
   }
   #gameCanvas {
     background: #111;
     display: block;
     margin: 0 auto;
+    pointer-events: auto;
   }
 
   #startButton, #retryButton {
