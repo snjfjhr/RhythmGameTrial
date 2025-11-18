@@ -69,9 +69,7 @@ async function lockOrientationPortrait() {
     if (screen.orientation && screen.orientation.lock) {
         try {
             await screen.orientation.lock("portrait");
-        } catch (e) {
-            console.log("Portrait lock not supported:", e);
-        }
+        } catch (e) {}
     }
 }
 
@@ -79,23 +77,19 @@ async function lockOrientationLandscape() {
     if (screen.orientation && screen.orientation.lock) {
         try {
             await screen.orientation.lock("landscape");
-        } catch (e) {
-            console.log("Landscape lock not supported:", e);
-        }
+        } catch (e) {}
     }
 }
 
-// ====== ページロード時の設定 ======
 window.addEventListener('load', () => {
     if (isMobile()) {
-        document.body.classList.add("mobile"); // landscape警告の対象
-        lockOrientationPortrait();            // 縦固定
+        document.body.classList.add("mobile");
+        lockOrientationPortrait();
     } else {
-        lockOrientationLandscape();           // PCは横固定
+        lockOrientationLandscape();
     }
 });
 
-// iOS等で強制できない場合のフォロー
 window.addEventListener("orientationchange", () => {
     if (isMobile() && window.orientation !== 0) {
         alert("縦画面でプレイしてください");
@@ -107,12 +101,39 @@ function resizeCanvas(){
     canvas.width = window.innerWidth;
     canvas.height = window.innerHeight;
     laneWidth = canvas.width / 2;
-    hitLineY = canvas.height * 0.9; // 下から10%
+    hitLineY = canvas.height * 0.9;
 }
 window.addEventListener('resize', resizeCanvas);
 resizeCanvas();
 
-// JSON読み込み
+// ===== 入力処理（修正点のコア） =====
+
+function handleInput(e) {
+    if (gameState !== "playing") return;
+    e.preventDefault(); // iOSスクロール防止
+
+    let x;
+    const rect = canvas.getBoundingClientRect();
+
+    if (e.touches && e.touches.length > 0) {
+        x = e.touches[0].clientX;
+    } else {
+        x = e.clientX;
+    }
+
+    const scaleX = canvas.width / rect.width;
+    const realX = (x - rect.left) * scaleX;
+    const lane = realX < laneWidth ? 0 : 1;
+
+    judge(lane);
+}
+
+// PC＋スマホ両対応
+canvas.addEventListener("pointerdown", handleInput, { passive: false });
+canvas.addEventListener("touchstart", handleInput, { passive: false });
+canvas.addEventListener("mousedown", handleInput);
+
+// ====== JSON & BGM 読み込み ======
 fetch("chart.json")
 .then(res=>res.json())
 .then(data=>{
@@ -123,18 +144,18 @@ fetch("chart.json")
         .then(r=>r.arrayBuffer())
         .then(buf=>audioCtx.decodeAudioData(buf))
         .then(decoded=>{ bgmBuffer=decoded; showStartScreen(); })
-        .catch(err=>{ console.error("BGM読み込み失敗",err); showStartScreen(); });
+        .catch(err=>{ showStartScreen(); });
     } else showStartScreen();
 })
-.catch(err=>{ console.error("譜面読み込み失敗",err); ui.innerHTML="Error"; });
+.catch(err=>{ ui.innerHTML="Error"; });
 
 function parseChartTiming(jsonChart){
     const bpm=jsonChart.bpm;
     const beatsPerMeasure=jsonChart.timeSignature[0];
     const secPerBeat=60/bpm;
     return jsonChart.notes.map(n=>({
-        startTime: ((n.measure-1)*beatsPerMeasure + (n.beat-1))*secPerBeat + (jsonChart.offset||0)
-    ,   lane: n.lane
+        startTime: ((n.measure-1)*beatsPerMeasure + (n.beat-1))*secPerBeat + (jsonChart.offset||0),
+        lane: n.lane
     }));
 }
 
@@ -242,20 +263,6 @@ function judge(lane){
 document.addEventListener("keydown",e=>{
     if(e.key=="f"||e.key=="F") judge(0);
     if(e.key=="j"||e.key=="J") judge(1);
-});
-
-// タップ/クリック判定
-function handleTap(clientX){
-    const rect = canvas.getBoundingClientRect();
-    const scaleX = canvas.width/rect.width;
-    const x = (clientX - rect.left) * scaleX;
-    const lane = x < laneWidth ? 0 : 1;
-    judge(lane);
-}
-
-canvas.addEventListener("pointerdown", e=>{
-    if(gameState!=="playing") return;
-    handleTap(e.clientX);
 });
 
 function update(){
