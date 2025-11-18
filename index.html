@@ -5,7 +5,6 @@
 <title>mymusic</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 
-<!-- スマホ縦固定ヒント -->
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="screen-orientation" content="portrait">
 <meta name="x5-orientation" content="portrait">
@@ -15,23 +14,16 @@
 <style>
 html, body { margin:0; padding:0; width:100%; height:100%; background:#111; color:white; font-family:sans-serif; overflow:hidden; touch-action:none; }
 canvas { display:block; background:black; width:100%; height:100%; touch-action:none; }
-#ui { position:absolute; top:0; left:0; width:100%; height:100%; display:flex;
-      justify-content:center; align-items:center; flex-direction:column; }
+#ui { position:absolute; top:0; left:0; width:100%; height:100%; display:flex; justify-content:center; align-items:center; flex-direction:column; }
 button { font-size:8vw; padding:2vh 5vw; margin:2vh; cursor:pointer; }
 
-/* スマホで横向きになった場合の警告 */
+/* スマホ横向き警告 */
 @media screen and (orientation: landscape) {
     body.mobile::before {
         content: "縦画面に戻してください";
-        position: fixed;
-        top: 0; left: 0; right: 0; bottom: 0;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        background: black;
-        color: white;
-        font-size: 6vw;
-        z-index: 99999;
+        position: fixed; top:0; left:0; right:0; bottom:0;
+        display:flex; align-items:center; justify-content:center;
+        background:black; color:white; font-size:6vw; z-index:99999;
     }
 }
 </style>
@@ -60,139 +52,88 @@ const audioCtx = new (window.AudioContext||window.webkitAudioContext)();
 let bgmBuffer=null, bgmSource=null;
 
 // ===== スマホ判定 =====
-function isMobile() {
-    return /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-}
+function isMobile(){ return /iPhone|iPad|iPod|Android/i.test(navigator.userAgent); }
 
 // ===== 画面向き固定 =====
-async function lockOrientationPortrait() {
-    if(screen.orientation && screen.orientation.lock) {
-        try { await screen.orientation.lock("portrait"); } catch(e) {}
-    }
-}
-async function lockOrientationLandscape() {
-    if(screen.orientation && screen.orientation.lock) {
-        try { await screen.orientation.lock("landscape"); } catch(e) {}
-    }
-}
+async function lockOrientationPortrait(){ if(screen.orientation?.lock){ try{await screen.orientation.lock("portrait");}catch(e){} } }
+async function lockOrientationLandscape(){ if(screen.orientation?.lock){ try{await screen.orientation.lock("landscape");}catch(e){} } }
 
-window.addEventListener('load', () => {
-    if(isMobile()){
-        document.body.classList.add("mobile");
-        lockOrientationPortrait();
-    } else {
-        lockOrientationLandscape();
-    }
+window.addEventListener('load', ()=>{
+    if(isMobile()){ document.body.classList.add("mobile"); lockOrientationPortrait(); }
+    else lockOrientationLandscape();
 });
-
-window.addEventListener("orientationchange", () => {
-    if(isMobile() && window.orientation !== 0) alert("縦画面でプレイしてください");
-});
+window.addEventListener("orientationchange", ()=>{ if(isMobile() && window.orientation!==0) alert("縦画面でプレイしてください"); });
 
 // ===== Canvas サイズ =====
-function resizeCanvas(){
-    canvas.width = window.innerWidth;
-    canvas.height = window.innerHeight;
-    laneWidth = canvas.width / 2;
-    hitLineY = canvas.height * 0.9;
-}
+function resizeCanvas(){ canvas.width=window.innerWidth; canvas.height=window.innerHeight; laneWidth=canvas.width/2; hitLineY=canvas.height*0.9; }
 window.addEventListener('resize', resizeCanvas);
 resizeCanvas();
 
 // ===== JSON & BGM 読み込み =====
-fetch("chart.json")
-.then(res=>res.json())
-.then(data=>{
-    chart = parseChartTiming(data);
-    notes = chart.map(n=>({...n, hit:false}));
+fetch("chart.json").then(r=>r.json()).then(data=>{
+    chart=parseChartTiming(data);
+    notes=chart.map(n=>({...n, hit:false}));
     if(data.bgm){
-        fetch(data.bgm)
-        .then(r=>r.arrayBuffer())
+        fetch(data.bgm).then(r=>r.arrayBuffer())
         .then(buf=>audioCtx.decodeAudioData(buf))
         .then(decoded=>{ bgmBuffer=decoded; showStartScreen(); })
-        .catch(err=>{ showStartScreen(); });
+        .catch(()=>{ showStartScreen(); });
     } else showStartScreen();
-})
-.catch(err=>{ ui.innerHTML="Error"; });
+}).catch(()=>{ ui.innerHTML="Error"; });
 
 function parseChartTiming(jsonChart){
     const bpm=jsonChart.bpm;
     const beatsPerMeasure=jsonChart.timeSignature[0];
     const secPerBeat=60/bpm;
-    return jsonChart.notes.map(n=>({
-        startTime: ((n.measure-1)*beatsPerMeasure + (n.beat-1))*secPerBeat + (jsonChart.offset||0),
-        lane: n.lane
-    }));
+    return jsonChart.notes.map(n=>({ startTime: ((n.measure-1)*beatsPerMeasure + (n.beat-1))*secPerBeat + (jsonChart.offset||0), lane:n.lane }));
 }
 
 // ===== UI & ゲーム開始 =====
 function showStartScreen(){
     gameState="start"; ui.innerHTML="";
-    notes = chart.map(n=>({...n, hit:false}));
+    notes=chart.map(n=>({...n, hit:false}));
 
-    const btn = document.createElement('button');
+    const btn=document.createElement('button');
     btn.innerText="Start";
-    btn.onclick = async () => {
+    btn.onclick=async ()=>{
         if(audioCtx.state==='suspended') await audioCtx.resume();
+        ui.style.display="none"; // ゲーム中は非表示にしてCanvasにタップを届かせる
         startCountdown();
     };
     ui.appendChild(btn);
 }
 
 function startCountdown(){
-    gameState="countdown"; ui.innerHTML="";
-    currentCountdown=3;
-    const interval = setInterval(()=>{
+    gameState="countdown"; currentCountdown=3;
+    const interval=setInterval(()=>{
         currentCountdown--;
-        if(currentCountdown<=0){
-            clearInterval(interval);
-            currentCountdown=null;
-            startBGMAndGame();
-        }
+        if(currentCountdown<=0){ clearInterval(interval); currentCountdown=null; startBGMAndGame(); }
     },1000);
 }
 
 function startBGMAndGame(){
-    startTime = audioCtx.currentTime;
+    startTime=audioCtx.currentTime;
     if(bgmBuffer){
-        bgmSource = audioCtx.createBufferSource();
-        bgmSource.buffer = bgmBuffer;
+        bgmSource=audioCtx.createBufferSource();
+        bgmSource.buffer=bgmBuffer;
         bgmSource.connect(audioCtx.destination);
-        bgmSource.start(startTime + offsetSec);
-        bgmSource.onended = () => { showResultScreen(); };
+        bgmSource.start(startTime+offsetSec);
+        bgmSource.onended=()=>{ showResultScreen(); };
     }
     startGame();
 }
 
-function startGame(){
-    gameState="playing";
-    score=0; combo=0; currentHitText=null;
-    hitCounts={PERFECT:0,GOOD:0,MISS:0};
-}
+function startGame(){ gameState="playing"; score=0; combo=0; currentHitText=null; hitCounts={PERFECT:0,GOOD:0,MISS:0}; }
 
-// ===== 結果画面 =====
 function showResultScreen(){
     if(bgmSource) bgmSource.stop();
-    gameState="result"; ui.innerHTML="";
-
+    gameState="result"; ui.innerHTML=""; ui.style.display="flex";
     const div=document.createElement('div');
-    div.style.fontSize='6vw';
-    div.style.textAlign='center';
-    div.style.marginBottom='4vh';
-    div.innerHTML=`
-        <div>Score: ${score}</div>
-        <div>Combo: ${combo}</div>
-        <div>PERFECT: ${hitCounts.PERFECT}</div>
-        <div>GOOD: ${hitCounts.GOOD}</div>
-        <div>MISS: ${hitCounts.MISS}</div>
-    `;
-
+    div.style.fontSize='6vw'; div.style.textAlign='center'; div.style.marginBottom='4vh';
+    div.innerHTML=`<div>Score: ${score}</div><div>Combo: ${combo}</div><div>PERFECT: ${hitCounts.PERFECT}</div><div>GOOD: ${hitCounts.GOOD}</div><div>MISS: ${hitCounts.MISS}</div>`;
     const retryBtn=document.createElement('button');
-    retryBtn.innerText="Retry";
-    retryBtn.onclick=()=>showStartScreen();
-
-    ui.appendChild(div);
-    ui.appendChild(retryBtn);
+    retryBtn.innerText="Retry"; retryBtn.onclick=()=>showStartScreen();
+    ui.appendChild(div); ui.appendChild(retryBtn);
 }
 
 // ===== 描画 =====
@@ -206,54 +147,39 @@ function drawBackground(){
     ctx.fillText("J", laneWidth + laneWidth/2, canvas.height-20);
 }
 
-function showHitText(text){
-    currentHitText={text:text, startTime:performance.now()};
-    if(hitCounts[text]!==undefined) hitCounts[text]++;
-}
+function showHitText(text){ currentHitText={text:text,startTime:performance.now()}; if(hitCounts[text]!==undefined) hitCounts[text]++; }
 
 // ===== 判定 =====
 function judge(lane){
     if(!notes.length || !startTime || gameState!=="playing") return;
-    const now = audioCtx.currentTime - startTime;
-    let hit=false;
+    const now=audioCtx.currentTime-startTime; let hit=false;
     for(let note of notes){
         if(!note.hit && note.lane===lane){
-            const diff = now - note.startTime;
-            if(Math.abs(diff)<=hitRangePerfectSec){
-                note.hit=true; score+=100; combo++; showHitText("PERFECT"); hit=true; break;
-            } else if(Math.abs(diff)<=hitRangeGoodSec){
-                note.hit=true; score+=50; combo++; showHitText("GOOD"); hit=true; break;
-            }
+            const diff=now-note.startTime;
+            if(Math.abs(diff)<=hitRangePerfectSec){ note.hit=true; score+=100; combo++; showHitText("PERFECT"); hit=true; break; }
+            else if(Math.abs(diff)<=hitRangeGoodSec){ note.hit=true; score+=50; combo++; showHitText("GOOD"); hit=true; break; }
         }
     }
     if(!hit){ combo=0; showHitText("MISS"); }
 }
 
 // ===== キーボード =====
-document.addEventListener("keydown", e => {
-    if(e.key=="f"||e.key=="F") judge(0);
-    if(e.key=="j"||e.key=="J") judge(1);
-});
+document.addEventListener("keydown", e=>{ if(e.key=="f"||e.key=="F") judge(0); if(e.key=="j"||e.key=="J") judge(1); });
 
-// ===== タップ判定（スマホ用） =====
-function handleTouchStart(e){
+// ===== タップ判定（左右全域対応） =====
+function handleInput(e){
     if(gameState!=="playing") return;
     e.preventDefault();
-    for(let t of e.touches){
-        const rect = canvas.getBoundingClientRect();
-        const realX = t.pageX - rect.left;
-        const lane = realX < laneWidth ? 0 : 1;
-        judge(lane);
-    }
-}
-
-canvas.addEventListener("touchstart", handleTouchStart, {passive:false});
-canvas.addEventListener("mousedown", e=>{
-    if(gameState!=="playing") return;
+    let touches = e.touches ? e.touches : [e];
     const rect = canvas.getBoundingClientRect();
-    const lane = e.pageX - rect.left < laneWidth ? 0 : 1;
-    judge(lane);
-});
+    touches.forEach(t=>{
+        const x = (t.clientX - rect.left) * (canvas.width/rect.width);
+        const lane = x < laneWidth ? 0 : 1;
+        judge(lane);
+    });
+}
+canvas.addEventListener("touchstart", handleInput, {passive:false});
+canvas.addEventListener("mousedown", handleInput);
 
 // ===== ゲームループ =====
 function update(){
@@ -261,18 +187,15 @@ function update(){
     drawBackground();
 
     if(gameState==="playing"){
-        const now = audioCtx.currentTime - startTime;
+        const now=audioCtx.currentTime-startTime;
         for(let note of notes){
             if(!note.hit){
-                const appearTime = note.startTime - (hitLineY + 30)/speedFactor;
-                if(now >= appearTime){
-                    const y = (now - appearTime)*speedFactor;
+                const appearTime=note.startTime - (hitLineY+30)/speedFactor;
+                if(now>=appearTime){
+                    const y=(now-appearTime)*speedFactor;
                     ctx.fillStyle="cyan";
-                    ctx.beginPath();
-                    ctx.arc(note.lane*laneWidth + laneWidth/2, y, 15,0,Math.PI*2); ctx.fill();
-                    if(y > hitLineY + 0.5*speedFactor/60){
-                        note.hit=true; showHitText("MISS"); combo=0;
-                    }
+                    ctx.beginPath(); ctx.arc(note.lane*laneWidth+laneWidth/2, y, 15,0,Math.PI*2); ctx.fill();
+                    if(y>hitLineY+0.5*speedFactor/60){ note.hit=true; showHitText("MISS"); combo=0; }
                 }
             }
         }
@@ -284,9 +207,9 @@ function update(){
     }
 
     if(currentHitText){
-        const elapsed = performance.now() - currentHitText.startTime;
-        if(elapsed < hitDisplayTime){
-            ctx.fillStyle = currentHitText.text==="PERFECT"?"gold":currentHitText.text==="GOOD"?"lime":"red";
+        const elapsed = performance.now()-currentHitText.startTime;
+        if(elapsed<hitDisplayTime){
+            ctx.fillStyle=currentHitText.text==="PERFECT"?"gold":currentHitText.text==="GOOD"?"lime":"red";
             ctx.font="40px sans-serif"; ctx.textAlign="center";
             ctx.fillText(currentHitText.text, canvas.width/2, canvas.height/2);
         } else currentHitText=null;
