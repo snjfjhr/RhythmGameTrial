@@ -14,7 +14,7 @@
 
 <style>
 body { margin:0; background:#111; color:white; font-family:sans-serif; overflow:hidden; }
-canvas { display:block; background:black; touch-action:none; }
+canvas { display:block; background:black; touch-action:none; } /* タッチ操作でスクロール阻止 */
 #ui { position:absolute; top:0; left:0; width:100%; height:100%; display:flex;
       justify-content:center; align-items:center; flex-direction:column; }
 button { font-size:8vw; padding:2vh 5vw; margin:2vh; cursor:pointer; }
@@ -50,7 +50,7 @@ let speedFactor = 300; // px/sec
 let hitRangePerfectSec = 0.15;
 let hitRangeGoodSec = 0.25;
 let hitDisplayTime = 500;
-let offsetSec = 0; // BGM同期用オフセット（秒）
+let offsetSec = 0;
 
 let chart=[], notes=[], startTime=null;
 let score=0, combo=0, gameState="start", currentHitText=null, currentCountdown=null;
@@ -64,13 +64,12 @@ function isMobile() {
     return /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
 }
 
-// ===== 画面向き固定処理 =====
+// ===== 画面向き固定 =====
 async function lockOrientationPortrait() {
     if (screen.orientation && screen.orientation.lock) {
         try { await screen.orientation.lock("portrait"); } catch(e) {}
     }
 }
-
 async function lockOrientationLandscape() {
     if (screen.orientation && screen.orientation.lock) {
         try { await screen.orientation.lock("landscape"); } catch(e) {}
@@ -102,7 +101,7 @@ function resizeCanvas(){
 window.addEventListener('resize', resizeCanvas);
 resizeCanvas();
 
-// ===== JSON & BGM 読み込み ======
+// ===== JSON & BGM 読み込み =====
 fetch("chart.json")
 .then(res=>res.json())
 .then(data=>{
@@ -231,28 +230,29 @@ function judge(lane){
     if(!hit){ combo=0; showHitText("MISS"); }
 }
 
-// ===== キーボード操作 =====
+// ===== キーボード =====
 document.addEventListener("keydown", e => {
     if(e.key=="f"||e.key=="F") judge(0);
     if(e.key=="j"||e.key=="J") judge(1);
 });
 
-// ===== タップ/クリック判定（左右半分全域反応） =====
+// ===== タップ/クリック判定（左右半分全域対応） =====
 function handleInput(e){
     if(gameState !== "playing") return;
-    e.preventDefault();
+    e.preventDefault(); // スマホスクロール防止
     let x;
     const rect = canvas.getBoundingClientRect();
-    if(e.touches && e.touches.length > 0){
+    if(e.touches && e.touches.length>0){
         x = e.touches[0].clientX;
     } else {
         x = e.clientX;
     }
     const scaleX = canvas.width / rect.width;
     const realX = (x - rect.left) * scaleX;
-    const lane = realX < laneWidth ? 0 : 1; // 0=左、1=右
+    const lane = realX < laneWidth ? 0 : 1;
     judge(lane);
 }
+
 canvas.addEventListener("pointerdown", handleInput, {passive:false});
 canvas.addEventListener("mousedown", handleInput);
 canvas.addEventListener("touchstart", handleInput, {passive:false});
