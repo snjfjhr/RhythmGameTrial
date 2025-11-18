@@ -1,313 +1,157 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
-<meta charset="UTF-8">
-<title>mymusic</title>
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-
-<!-- スマホ縦固定ヒント -->
-<meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="screen-orientation" content="portrait">
-<meta name="x5-orientation" content="portrait">
-<meta name="full-screen" content="true">
-<meta name="x5-fullscreen" content="true">
-
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+<title>Rhythm Game</title>
 <style>
-body { margin:0; background:#111; color:white; font-family:sans-serif; overflow:hidden; }
-canvas { display:block; background:black; touch-action:none; }
-#ui { position:absolute; top:0; left:0; width:100%; height:100%; display:flex;
-      justify-content:center; align-items:center; flex-direction:column; }
-button { font-size:8vw; padding:2vh 5vw; margin:2vh; cursor:pointer; }
+  body {
+    margin: 0;
+    overflow: hidden;
+    touch-action: none; /* ← スマホで重要 */
+  }
+  #gameCanvas {
+    background: #111;
+    display: block;
+    margin: 0 auto;
+  }
 
-/* スマホで横向きになった場合の警告 */
-@media screen and (orientation: landscape) {
-    body.mobile::before {
-        content: "縦画面に戻してください";
-        position: fixed;
-        top: 0; left: 0; right: 0; bottom: 0;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        background: black;
-        color: white;
-        font-size: 6vw;
-        z-index: 99999;
-    }
-}
+  #startButton, #retryButton {
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+    padding: 12px 24px;
+    font-size: 20px;
+    background: #fff;
+    border-radius: 8px;
+    cursor: pointer;
+  }
+
+  #startButton {
+    top: 40%;
+  }
+  #retryButton {
+    top: 50%;
+    display: none;
+  }
 </style>
 </head>
 <body>
+
 <canvas id="gameCanvas"></canvas>
-<div id="ui">Loading...</div>
+<div id="startButton">Start</div>
+<div id="retryButton">Retry</div>
 
 <script>
 const canvas = document.getElementById("gameCanvas");
 const ctx = canvas.getContext("2d");
-const ui = document.getElementById("ui");
+canvas.width = 600;
+canvas.height = 800;
 
-let laneWidth, hitLineY;
-let speedFactor = 300; // px/sec
-let hitRangePerfectSec = 0.15;
-let hitRangeGoodSec = 0.25;
-let hitDisplayTime = 500;
-let offsetSec = 0; // BGM同期用オフセット（秒）
+let notes = [];
+let isPlaying = false;
+let startTime = 0;
+let lineY = 700; // 判定ライン
 
-let chart=[], notes=[], startTime=null;
-let score=0, combo=0, gameState="start", currentHitText=null, currentCountdown=null;
-let hitCounts={PERFECT:0,GOOD:0,MISS:0};
-
-const audioCtx = new (window.AudioContext||window.webkitAudioContext)();
-let bgmBuffer=null, bgmSource=null;
-
-// ===== スマホ判定 =====
-function isMobile() {
-    return /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+function spawnNotes() {
+  notes = [];
+  for (let i = 0; i < 10; i++) {
+      notes.push({
+          x: 300,
+          y: -100 - i * 200,
+          time: i * 1000
+      });
+  }
 }
 
-// ===== 画面向き固定処理 =====
-async function lockOrientationPortrait() {
-    if (screen.orientation && screen.orientation.lock) {
-        try {
-            await screen.orientation.lock("portrait");
-        } catch (e) {}
-    }
+function draw() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  // 判定ライン
+  ctx.fillStyle = "red";
+  ctx.fillRect(0, lineY, canvas.width, 4);
+
+  notes.forEach(note => {
+    ctx.fillStyle = "white";
+    ctx.beginPath();
+    ctx.arc(note.x, note.y, 20, 0, Math.PI * 2);
+    ctx.fill();
+  });
+
+  if (isPlaying) requestAnimationFrame(draw);
 }
 
-async function lockOrientationLandscape() {
-    if (screen.orientation && screen.orientation.lock) {
-        try {
-            await screen.orientation.lock("landscape");
-        } catch (e) {}
-    }
+function update() {
+  if (!isPlaying) return;
+
+  const elapsed = performance.now() - startTime;
+
+  notes.forEach(note => {
+    note.y = (elapsed - note.time) * 0.3;
+  });
+
+  requestAnimationFrame(update);
 }
 
-window.addEventListener('load', () => {
-    if (isMobile()) {
-        document.body.classList.add("mobile");
-        lockOrientationPortrait();
-    } else {
-        lockOrientationLandscape();
+function checkHit(inputY) {
+  for (let note of notes) {
+    const diff = Math.abs(note.y - lineY);
+    if (diff < 25) {
+      console.log("PERFECT");
+      note.y = 9999;
+      return;
     }
+  }
+  console.log("MISS");
+}
+
+// -------- input events (PC + Mobile) ----------
+document.addEventListener("keydown", (e) => {
+  if (e.code === "Space") checkHit();
 });
 
-window.addEventListener("orientationchange", () => {
-    if (isMobile() && window.orientation !== 0) {
-        alert("縦画面でプレイしてください");
-    }
+// ★ スマホ用タップイベント
+canvas.addEventListener("touchstart", (e) => {
+  e.preventDefault();
+  const touch = e.changedTouches[0];
+
+  // キャンバス座標に変換（必要ならオフセット調整）
+  const rect = canvas.getBoundingClientRect();
+  const y = touch.clientY - rect.top;
+
+  checkHit(y);
+}, { passive: false });
+
+// PCマウスにも対応（保険）
+canvas.addEventListener("mousedown", (e) => {
+  const rect = canvas.getBoundingClientRect();
+  const y = e.clientY - rect.top;
+  checkHit(y);
 });
 
-// キャンバスサイズ調整
-function resizeCanvas(){
-    canvas.width = window.innerWidth;
-    canvas.height = window.innerHeight;
-    laneWidth = canvas.width / 2;
-    hitLineY = canvas.height * 0.9;
+// -------- Buttons ----------
+const startButton = document.getElementById("startButton");
+const retryButton = document.getElementById("retryButton");
+
+startButton.onclick = () => {
+  startButton.style.display = "none";
+  retryButton.style.display = "none";
+  startGame();
+};
+
+retryButton.onclick = () => {
+  retryButton.style.display = "none";
+  startGame();
+};
+
+function startGame() {
+  spawnNotes();
+  isPlaying = true;
+  startTime = performance.now();
+  draw();
+  update();
 }
-window.addEventListener('resize', resizeCanvas);
-resizeCanvas();
-
-// ===== 入力処理（修正点のコア） =====
-
-function handleInput(e) {
-    if (gameState !== "playing") return;
-    e.preventDefault(); // iOSスクロール防止
-
-    let x;
-    const rect = canvas.getBoundingClientRect();
-
-    if (e.touches && e.touches.length > 0) {
-        x = e.touches[0].clientX;
-    } else {
-        x = e.clientX;
-    }
-
-    const scaleX = canvas.width / rect.width;
-    const realX = (x - rect.left) * scaleX;
-    const lane = realX < laneWidth ? 0 : 1;
-
-    judge(lane);
-}
-
-// PC＋スマホ両対応
-canvas.addEventListener("pointerdown", handleInput, { passive: false });
-canvas.addEventListener("touchstart", handleInput, { passive: false });
-canvas.addEventListener("mousedown", handleInput);
-
-// ====== JSON & BGM 読み込み ======
-fetch("chart.json")
-.then(res=>res.json())
-.then(data=>{
-    chart = parseChartTiming(data);
-    notes = chart.map(n=>({...n, hit:false}));
-    if(data.bgm){
-        fetch(data.bgm)
-        .then(r=>r.arrayBuffer())
-        .then(buf=>audioCtx.decodeAudioData(buf))
-        .then(decoded=>{ bgmBuffer=decoded; showStartScreen(); })
-        .catch(err=>{ showStartScreen(); });
-    } else showStartScreen();
-})
-.catch(err=>{ ui.innerHTML="Error"; });
-
-function parseChartTiming(jsonChart){
-    const bpm=jsonChart.bpm;
-    const beatsPerMeasure=jsonChart.timeSignature[0];
-    const secPerBeat=60/bpm;
-    return jsonChart.notes.map(n=>({
-        startTime: ((n.measure-1)*beatsPerMeasure + (n.beat-1))*secPerBeat + (jsonChart.offset||0),
-        lane: n.lane
-    }));
-}
-
-function showStartScreen(){
-    gameState="start"; ui.innerHTML="";
-    notes = chart.map(n=>({...n, hit:false}));
-
-    const btn = document.createElement('button');
-    btn.innerText="Start";
-    btn.onclick = async () => {
-        if(audioCtx.state==='suspended') await audioCtx.resume();
-        startCountdown();
-    };
-    ui.appendChild(btn);
-}
-
-function startCountdown(){
-    gameState="countdown"; ui.innerHTML="";
-    currentCountdown=3;
-    const interval = setInterval(()=>{
-        currentCountdown--;
-        if(currentCountdown<=0){
-            clearInterval(interval);
-            currentCountdown=null;
-            startBGMAndGame();
-        }
-    },1000);
-}
-
-function startBGMAndGame(){
-    startTime = audioCtx.currentTime;
-    if(bgmBuffer){
-        bgmSource=audioCtx.createBufferSource();
-        bgmSource.buffer=bgmBuffer;
-        bgmSource.connect(audioCtx.destination);
-        bgmSource.start(startTime + offsetSec);
-        bgmSource.onended=()=>{ showResultScreen(); };
-    }
-    startGame();
-}
-
-function startGame(){
-    gameState="playing";
-    score=0; combo=0; currentHitText=null;
-    hitCounts={PERFECT:0,GOOD:0,MISS:0};
-}
-
-function showResultScreen(){
-    if(bgmSource) bgmSource.stop();
-    gameState="result"; ui.innerHTML="";
-
-    const div=document.createElement('div');
-    div.style.fontSize='6vw';
-    div.style.textAlign='center';
-    div.style.marginBottom='4vh';
-    div.innerHTML=`
-        <div>Score: ${score}</div>
-        <div>Combo: ${combo}</div>
-        <div>PERFECT: ${hitCounts.PERFECT}</div>
-        <div>GOOD: ${hitCounts.GOOD}</div>
-        <div>MISS: ${hitCounts.MISS}</div>
-    `;
-
-    const retryBtn=document.createElement('button');
-    retryBtn.innerText="Retry";
-    retryBtn.onclick=()=>showStartScreen();
-
-    ui.appendChild(div);
-    ui.appendChild(retryBtn);
-}
-
-function drawBackground(){
-    ctx.strokeStyle="white";
-    ctx.beginPath(); ctx.moveTo(laneWidth,0); ctx.lineTo(laneWidth,canvas.height); ctx.stroke();
-    ctx.strokeStyle="red";
-    ctx.beginPath(); ctx.moveTo(0,hitLineY); ctx.lineTo(canvas.width,hitLineY); ctx.stroke();
-    ctx.fillStyle="white"; ctx.font="25px sans-serif"; ctx.textAlign="center";
-    ctx.fillText("F", laneWidth/2, canvas.height-20);
-    ctx.fillText("J", laneWidth + laneWidth/2, canvas.height-20);
-}
-
-function showHitText(text){
-    currentHitText={text:text, startTime:performance.now()};
-    if(hitCounts[text]!==undefined) hitCounts[text]++;
-}
-
-function judge(lane){
-    if(!notes.length || !startTime || gameState!=="playing") return;
-    const now = audioCtx.currentTime - startTime;
-    let hit=false;
-    for(let note of notes){
-        if(!note.hit && note.lane===lane){
-            const diff = now - note.startTime;
-            if(Math.abs(diff)<=hitRangePerfectSec){ 
-                note.hit=true; score+=100; combo++; showHitText("PERFECT"); hit=true; break;
-            } else if(Math.abs(diff)<=hitRangeGoodSec){ 
-                note.hit=true; score+=50; combo++; showHitText("GOOD"); hit=true; break;
-            }
-        }
-    }
-    if(!hit){ combo=0; showHitText("MISS"); }
-}
-
-// キーボード対応
-document.addEventListener("keydown",e=>{
-    if(e.key=="f"||e.key=="F") judge(0);
-    if(e.key=="j"||e.key=="J") judge(1);
-});
-
-function update(){
-    ctx.clearRect(0,0,canvas.width,canvas.height);
-    drawBackground();
-
-    if(gameState==="playing"){
-        const now = audioCtx.currentTime - startTime;
-        for(let note of notes){
-            if(!note.hit){
-                const appearTime = note.startTime - (hitLineY + 30)/speedFactor;
-                if(now>=appearTime){
-                    const y = (now - appearTime)*speedFactor;
-                    ctx.fillStyle="cyan";
-                    ctx.beginPath();
-                    ctx.arc(note.lane*laneWidth+laneWidth/2, y, 15,0,Math.PI*2); ctx.fill();
-                    if(y>hitLineY + 0.5*speedFactor/60){ note.hit=true; showHitText("MISS"); combo=0; }
-                }
-            }
-        }
-    }
-
-    if(gameState==="countdown" && currentCountdown!=null){
-        ctx.fillStyle="white"; ctx.font="60px sans-serif"; ctx.textAlign="center";
-        ctx.fillText(currentCountdown, canvas.width/2, canvas.height/2);
-    }
-
-    if(currentHitText){
-        const elapsed = performance.now()-currentHitText.startTime;
-        if(elapsed<hitDisplayTime){
-            ctx.fillStyle = currentHitText.text==="PERFECT"?"gold":currentHitText.text==="GOOD"?"lime":"red";
-            ctx.font="40px sans-serif"; ctx.textAlign="center";
-            ctx.fillText(currentHitText.text, canvas.width/2, canvas.height/2);
-        } else currentHitText=null;
-    }
-
-    if(gameState==="playing"){
-        ctx.fillStyle="white"; ctx.font="20px sans-serif"; ctx.textAlign="left";
-        ctx.fillText(`Score: ${score} | Combo: ${combo}`,10,30);
-    }
-
-    requestAnimationFrame(update);
-}
-
-update();
 </script>
+
 </body>
 </html>
